@@ -17,157 +17,7 @@ import SDR.Demod
 import SDR.Pulse
 import SDR.Buffer
 
---Designed in Octave with 'signal' package using remez algorithm
-coeffsRFDecim :: [Complex CDouble]
-coeffsRFDecim = [
-
-   0.0329394,
-   0.0083235,
-   0.0067407,
-   0.0032584,
-  -0.0019575,
-  -0.0082985,
-  -0.0149386,
-  -0.0207572,
-  -0.0246124,
-  -0.0253119,
-  -0.0220131,
-  -0.0141571,
-  -0.0016430,
-   0.0149006,
-   0.0345188,
-   0.0557522,
-   0.0767567,
-   0.0956371,
-   0.1106267,
-   0.1202691,
-   0.1235811,
-   0.1202691,
-   0.1106267,
-   0.0956371,
-   0.0767567,
-   0.0557522,
-   0.0345188,
-   0.0149006,
-  -0.0016430,
-  -0.0141571,
-  -0.0220131,
-  -0.0253119,
-  -0.0246124,
-  -0.0207572,
-  -0.0149386,
-  -0.0082985,
-  -0.0019575,
-   0.0032584,
-   0.0067407,
-   0.0083235,
-   0.0329394
-
-    ]
-
---In Octave:
---pkg load signal
---a = [1 1 0 0]
---f = [0 0.1 0.3 1]
---b = remez(30, f, a)
-
-coeffsAudioResampler :: [CDouble]
-coeffsAudioResampler = [
-
-  -3.0862e-04,
-   1.9752e-03,
-   4.1096e-03,
-   5.8306e-03,
-   4.9003e-03,
-  -4.7097e-04,
-  -1.0215e-02,
-  -2.1264e-02,
-  -2.7609e-02,
-  -2.2054e-02,
-   7.7070e-04,
-   4.1331e-02,
-   9.3585e-02,
-   1.4595e-01,
-   1.8477e-01,
-   1.9910e-01,
-   1.8477e-01,
-   1.4595e-01,
-   9.3585e-02,
-   4.1331e-02,
-   7.7070e-04,
-  -2.2054e-02,
-  -2.7609e-02,
-  -2.1264e-02,
-  -1.0215e-02,
-  -4.7097e-04,
-   4.9003e-03,
-   5.8306e-03,
-   4.1096e-03,
-   1.9752e-03,
-  -3.0862e-04
-    ]
-
---In Octave:
---pkg load signal
---a = [1 1 0 0]
---f = [0 0.3125 0.39 1]
---b = remez(50, f, a)
-
-coeffsAudioFilter :: [CDouble]
-coeffsAudioFilter = [
-
-   1.4300e-03,
-   7.7910e-03,
-   3.6881e-04,
-  -3.9208e-03,
-  -5.7843e-03,
-  -5.4785e-04,
-   7.0511e-03,
-   7.9887e-03,
-  -9.8260e-04,
-  -1.1368e-02,
-  -1.0366e-02,
-   4.0556e-03,
-   1.7507e-02,
-   1.2702e-02,
-  -9.6383e-03,
-  -2.6509e-02,
-  -1.4798e-02,
-   1.9937e-02,
-   4.1280e-02,
-   1.6460e-02,
-  -4.2208e-02,
-  -7.3911e-02,
-  -1.7528e-02,
-   1.2712e-01,
-   2.8367e-01,
-   3.5123e-01,
-   2.8367e-01,
-   1.2712e-01,
-  -1.7528e-02,
-  -7.3911e-02,
-  -4.2208e-02,
-   1.6460e-02,
-   4.1280e-02,
-   1.9937e-02,
-  -1.4798e-02,
-  -2.6509e-02,
-  -9.6383e-03,
-   1.2702e-02,
-   1.7507e-02,
-   4.0556e-03,
-  -1.0366e-02,
-  -1.1368e-02,
-  -9.8260e-04,
-   7.9887e-03,
-   7.0511e-03,
-  -5.4785e-04,
-  -5.7843e-03,
-  -3.9208e-03,
-   3.6881e-04,
-   7.7910e-03,
-   1.4300e-03
-    ]
+import Coeffs
 
 bufNum = 1
 bufLen = 16384
@@ -198,14 +48,14 @@ main = eitherT putStrLn return $ do
     rfDecimator    <- lift $ decimateC decimation coeffsRFDecim samples sqd
 
     rfFFT          <- lift $ fftw sqd
-    rfSpectrum     <- plot sqd (1 / fromIntegral sqd)
+    rfSpectrum     <- plotSimple sqd (1 / fromIntegral sqd)
 
     audioResampler <- lift $ resampleR 3 10 coeffsAudioResampler sqd sqd
 
     audioFilter    <- lift $ filterR coeffsAudioFilter sqd sqd
 
     audioFFT       <- lift $ fftwReal sqd 
-    audioSpectrum  <- plot ((sqd `quot` 2) + 1) (1/100)
+    audioSpectrum  <- plotSimple ((sqd `quot` 2) + 1) (1/100)
 
     pulseSink      <- lift $ pulseAudioSink sqd
 
