@@ -6,6 +6,9 @@ import Foreign.C.Types
 import Foreign.ForeignPtr
 import Control.Monad
 
+import Data.Vector.Storable as VS
+import Data.Vector.Generic as VG
+
 import Graphics.UI.GLFW as G
 
 import SDR.Filter 
@@ -16,6 +19,9 @@ import SDR.Plot
 import SDR.Demod
 import SDR.Pulse
 import SDR.Buffer
+
+import Graphics.DynamicGraph.Waterfall
+import Graphics.DynamicGraph.Util
 
 import Coeffs
 
@@ -35,51 +41,55 @@ main = eitherT putStrLn return $ do
     --start cutoff at 15khz (0.3125)
 
     --initialize glfw 
-    lift $ setErrorCallback $ Just $ \error msg -> do
-        print error
-        putStrLn msg
-
-    res <- lift $ G.init
-    unless res (left "error initializing glfw")
+    setupGLFW
 
     --Initialize the components that require initialization
-    str            <- sdrStream 91100000 1280000 bufNum bufLen
+    str            <- sdrStream 102100000 1280000 bufNum bufLen
 
-    rfDecimator    <- lift $ decimateC decimation coeffsRFDecim samples sqd
+    rfDecimator    <- lift $ decimate decimation (VG.fromList coeffsRFDecim) samples sqd
 
-    rfFFT          <- lift $ fftw sqd
-    rfSpectrum     <- plotSimple sqd (1 / fromIntegral sqd)
+    --rfFFT          <- lift $ fftw sqd
+    rfSpectrum     <- plotFillAxes 1024 768 sqd jet --(4 / fromIntegral sqd)
 
-    audioResampler <- lift $ resampleR 3 10 coeffsAudioResampler sqd sqd
+    audioResampler <- lift $ resample 3 10 (VG.fromList coeffsAudioResampler) sqd sqd
 
-    audioFilter    <- lift $ filterR coeffsAudioFilter sqd sqd
+    audioFilter    <- lift $ filterr (VG.fromList coeffsAudioFilter) sqd sqd
 
-    audioFFT       <- lift $ fftwReal sqd 
-    audioSpectrum  <- plotSimple ((sqd `quot` 2) + 1) (1/100)
+    --audioFFT       <- lift $ fftwReal sqd 
+    --audioSpectrum  <- plotWaterfall 1024 768 ((sqd `quot` 2) + 1) 800 jet_mod 
 
-    pulseSink      <- lift $ pulseAudioSink sqd
+    pulseSink      <- lift $ pulseAudioSink 
+
+    --let window = hanning sqd
+    let z ** (x :+ y) = (x * z) :+ (y * z)
+    let devnull2 :: Consumer (VS.Vector CDouble) IO ()
+        devnull2 = devnull
+    let devnull3 :: Consumer (VS.Vector (Complex CDouble)) IO ()
+        devnull3 = devnull
 
     --Build the pipeline
-    let inputSpectrum :: Producer (ForeignPtr (Complex CDouble)) IO ()
-        inputSpectrum = str >-> P.mapM (makeComplexBuffer samples) >-> rfDecimator 
+    let inputSpectrum :: Producer (VS.Vector (Complex CDouble)) IO ()
+        --inputSpectrum = str >-> P.mapM (makeComplexBuffer samples) >-> P.map (flip VS.unsafeFromForeignPtr0 sqd) >-> rfDecimator 
+        inputSpectrum = str >-> P.map (flip VS.unsafeFromForeignPtr0 (fromIntegral $ bufNum * bufLen)) >-> P.map (makeComplexBufferVect samples) >-> rfDecimator 
 
-        spectrumFFTSink :: Consumer (ForeignPtr (Complex CDouble)) IO () 
-        spectrumFFTSink = rfFFT >-> devnull
+        spectrumFFTSink :: Consumer (VS.Vector (Complex CDouble)) IO () 
+        spectrumFFTSink = devnull --P.map (VG.zipWith (**) window . VG.zipWith (**) (fftFixup sqd)) >-> rfFFT >-> P.map (VG.map ((* (4 / fromIntegral sqd)) . realToFrac . magnitude)) >-> devnull2 --rfSpectrum
 
-        p1 :: Producer (ForeignPtr (Complex CDouble)) IO () 
+        p1 :: Producer (VS.Vector (Complex CDouble)) IO () 
         p1 = runEffect $ fork inputSpectrum >-> hoist lift spectrumFFTSink
 
-        demodulated :: Producer (ForeignPtr CDouble) IO ()
-        demodulated = p1 >-> fmDemod sqd >-> audioResampler >-> audioFilter
+        demodulated :: Producer (VS.Vector CDouble) IO ()
+        --demodulated = p1 >-> P.map (fst . VS.unsafeToForeignPtr0) >-> fmDemod sqd >-> P.map (flip VS.unsafeFromForeignPtr0 sqd) >-> audioResampler >-> audioFilter
+        demodulated = p1 >-> P.map (fmDemodVec 0) >-> audioResampler >-> audioFilter
 
-        audioSpectrumSink :: Consumer (ForeignPtr CDouble) IO ()
-        audioSpectrumSink = audioFFT >-> audioSpectrum
+        audioSpectrumSink :: Consumer (VS.Vector CDouble) IO ()
+        audioSpectrumSink = devnull --P.map (VG.zipWith (*) window) >-> audioFFT >-> P.map (VG.map ((/ 100) . realToFrac . magnitude)) >-> devnull2 --audioSpectrum
 
-        p2 :: Producer (ForeignPtr CDouble) IO ()
+        p2 :: Producer (VS.Vector CDouble) IO ()
         p2 = runEffect $ fork demodulated >-> hoist lift audioSpectrumSink
 
-        audioSink :: Consumer (ForeignPtr CDouble) IO ()
-        audioSink = P.mapM (multiplyConstFF sqd 0.2) >-> P.mapM (doubleToFloat sqd) >-> rate sqd >-> pulseSink
+        audioSink :: Consumer (VS.Vector CDouble) IO ()
+        audioSink = P.map (VG.map ((* 0.2) . realToFrac)) >-> rate sqd >-> pulseSink
 
         pipeline :: IO ()
         pipeline = runEffect $ p2 >-> audioSink
