@@ -18,7 +18,6 @@ import SDR.FFT
 import SDR.Plot
 import SDR.Demod
 import SDR.Pulse
-import SDR.Buffer
 
 import Graphics.DynamicGraph.Waterfall
 import Graphics.DynamicGraph.Util
@@ -44,7 +43,7 @@ main = eitherT putStrLn return $ do
     setupGLFW
 
     --Initialize the components that require initialization
-    str            <- sdrStream 102100000 1280000 bufNum bufLen
+    str            <- sdrStream 104500000 1280000 bufNum bufLen
 
     rfDecimator    <- lift $ decimate decimation (VG.fromList coeffsRFDecim) samples sqd
 
@@ -70,7 +69,7 @@ main = eitherT putStrLn return $ do
     --Build the pipeline
     let inputSpectrum :: Producer (VS.Vector (Complex CDouble)) IO ()
         --inputSpectrum = str >-> P.mapM (makeComplexBuffer samples) >-> P.map (flip VS.unsafeFromForeignPtr0 sqd) >-> rfDecimator 
-        inputSpectrum = str >-> P.map (flip VS.unsafeFromForeignPtr0 (fromIntegral $ bufNum * bufLen)) >-> P.map (makeComplexBufferVect samples) >-> rfDecimator 
+        inputSpectrum = str >-> P.map (makeComplexBufferVect samples) >-> rfDecimator 
 
         spectrumFFTSink :: Consumer (VS.Vector (Complex CDouble)) IO () 
         spectrumFFTSink = devnull --P.map (VG.zipWith (**) window . VG.zipWith (**) (fftFixup sqd)) >-> rfFFT >-> P.map (VG.map ((* (4 / fromIntegral sqd)) . realToFrac . magnitude)) >-> devnull2 --rfSpectrum
