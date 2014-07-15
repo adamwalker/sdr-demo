@@ -1,15 +1,13 @@
 import Data.Complex
 import Control.Monad.Trans.Either
-import Pipes
-import qualified Pipes.Prelude as P
 import Foreign.C.Types
-import Foreign.ForeignPtr
-import Control.Monad
 
 import Data.Vector.Storable as VS
 import Data.Vector.Generic as VG
-
+import Pipes
+import qualified Pipes.Prelude as P
 import Graphics.UI.GLFW as G
+import Graphics.Rendering.OpenGL (GLfloat)
 
 import SDR.Filter 
 import SDR.RTLSDRStream
@@ -22,67 +20,57 @@ import SDR.Pulse
 import Graphics.DynamicGraph.Waterfall
 import Graphics.DynamicGraph.Util
 
+--The filter coefficients are stored in another module
 import Coeffs
 
-bufNum = 1
-bufLen = 16384
-samples = fromIntegral (bufNum * bufLen) `quot` 2
+bufNum     = 1
+bufLen     = 16384
+samples    = fromIntegral (bufNum * bufLen) `quot` 2
 decimation = 8
-sqd = samples `quot` decimation
+sqd        = samples `quot` decimation
+
+{-
+    sampling frequency of the input is 1280 khz
+    this is decimated by a factor of 8 and then demodulated
+    sampling frequency of demodulated signal is 160 khz
+    need audio output at 48 khz
+    resampling factor is 48/160 == 3/10
+    FM pilot tone at 19khz (0.3958 * 48)
+    start audio filter cutoff at 15khz (0.3125 * 48)
+-}
 
 main = eitherT putStrLn return $ do
-
-    --sampling frequency of input is 1280 khz
-    --sampling frequency of fm demodulated signal is 160 khz
-    --resampling factor is 48/160
-    --resampling factor is 3/10
-    --audio frequency cutoff is 19khz (0.3958)
-    --start cutoff at 15khz (0.3125)
-
-    --initialize glfw 
     setupGLFW
-
-    --Initialize the components that require initialization
     str            <- sdrStream 104500000 1280000 bufNum bufLen
-
     rfDecimator    <- lift $ decimate decimation (VG.fromList coeffsRFDecim) samples sqd
-
-    --rfFFT          <- lift $ fftw sqd
-    rfSpectrum     <- plotFillAxes 1024 768 sqd jet --(4 / fromIntegral sqd)
-
+    rfFFT          <- lift $ fftw sqd
+    rfSpectrum     <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
+    --rfSpectrum     <- plotTexture 1024 768 sqd sqd --jet (4 / fromIntegral sqd)
     audioResampler <- lift $ resample 3 10 (VG.fromList coeffsAudioResampler) sqd sqd
-
     audioFilter    <- lift $ filterr (VG.fromList coeffsAudioFilter) sqd sqd
-
-    --audioFFT       <- lift $ fftwReal sqd 
+    audioFFT       <- lift $ fftwReal sqd 
+    audioSpectrum  <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
     --audioSpectrum  <- plotWaterfall 1024 768 ((sqd `quot` 2) + 1) 800 jet_mod 
-
     pulseSink      <- lift $ pulseAudioSink 
 
-    --let window = hanning sqd
-    let z ** (x :+ y) = (x * z) :+ (y * z)
-    let devnull2 :: Consumer (VS.Vector CDouble) IO ()
-        devnull2 = devnull
-    let devnull3 :: Consumer (VS.Vector (Complex CDouble)) IO ()
-        devnull3 = devnull
+    let window        = hanning sqd
+        z ** (x :+ y) = (x * z) :+ (y * z)
 
     --Build the pipeline
     let inputSpectrum :: Producer (VS.Vector (Complex CDouble)) IO ()
-        --inputSpectrum = str >-> P.mapM (makeComplexBuffer samples) >-> P.map (flip VS.unsafeFromForeignPtr0 sqd) >-> rfDecimator 
         inputSpectrum = str >-> P.map (makeComplexBufferVect samples) >-> rfDecimator 
 
         spectrumFFTSink :: Consumer (VS.Vector (Complex CDouble)) IO () 
-        spectrumFFTSink = devnull --P.map (VG.zipWith (**) window . VG.zipWith (**) (fftFixup sqd)) >-> rfFFT >-> P.map (VG.map ((* (4 / fromIntegral sqd)) . realToFrac . magnitude)) >-> devnull2 --rfSpectrum
+        spectrumFFTSink = P.map (VG.zipWith (**) window . VG.zipWith (**) (fftFixup sqd)) >-> rfFFT >-> P.map (VG.map ((* (4 / fromIntegral sqd)) . realToFrac . magnitude)) >-> rfSpectrum
 
         p1 :: Producer (VS.Vector (Complex CDouble)) IO () 
         p1 = runEffect $ fork inputSpectrum >-> hoist lift spectrumFFTSink
 
         demodulated :: Producer (VS.Vector CDouble) IO ()
-        --demodulated = p1 >-> P.map (fst . VS.unsafeToForeignPtr0) >-> fmDemod sqd >-> P.map (flip VS.unsafeFromForeignPtr0 sqd) >-> audioResampler >-> audioFilter
         demodulated = p1 >-> P.map (fmDemodVec 0) >-> audioResampler >-> audioFilter
 
         audioSpectrumSink :: Consumer (VS.Vector CDouble) IO ()
-        audioSpectrumSink = devnull --P.map (VG.zipWith (*) window) >-> audioFFT >-> P.map (VG.map ((/ 100) . realToFrac . magnitude)) >-> devnull2 --audioSpectrum
+        audioSpectrumSink = P.map (VG.zipWith (*) window) >-> audioFFT >-> P.map (VG.map ((/ 100) . realToFrac . magnitude)) >-> audioSpectrum
 
         p2 :: Producer (VS.Vector CDouble) IO ()
         p2 = runEffect $ fork demodulated >-> hoist lift audioSpectrumSink
