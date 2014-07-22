@@ -53,14 +53,13 @@ main = eitherT putStrLn return $ do
     pulseSink      <- lift $ pulseAudioSink 
 
     let window        = hanning sqd
-        z ** (x :+ y) = (x * z) :+ (y * z)
 
     --Build the pipeline
     let inputSpectrum :: Producer (VS.Vector (Complex CDouble)) IO ()
         inputSpectrum = str >-> P.map (makeComplexBufferVect samples) >-> decimate decimation (VG.fromList coeffsRFDecim) samples sqd
 
         spectrumFFTSink :: Consumer (VS.Vector (Complex CDouble)) IO () 
-        spectrumFFTSink = P.map (VG.zipWith (**) window . VG.zipWith (**) (fftFixup sqd)) >-> rfFFT >-> P.map (VG.map ((* (4 / fromIntegral sqd)) . realToFrac . magnitude)) >-> rfSpectrum
+        spectrumFFTSink = P.map (VG.zipWith (flip mult) window . VG.zipWith mult (fftFixup sqd)) >-> rfFFT >-> P.map (VG.map ((* (4 / fromIntegral sqd)) . realToFrac . magnitude)) >-> rfSpectrum
 
         p1 :: Producer (VS.Vector (Complex CDouble)) IO () 
         p1 = runEffect $ fork inputSpectrum >-> hoist lift spectrumFFTSink
