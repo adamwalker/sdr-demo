@@ -40,14 +40,13 @@ sqd        = samples `quot` decimation
 -}
 
 main = eitherT putStrLn return $ do
+
+    --Initialize the components that require initialization
     setupGLFW
     str            <- sdrStream 104500000 1280000 bufNum bufLen
-    rfDecimator    <- lift $ decimate decimation (VG.fromList coeffsRFDecim) samples sqd
     rfFFT          <- lift $ fftw sqd
     rfSpectrum     <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
     --rfSpectrum     <- plotTexture 1024 768 sqd sqd --jet (4 / fromIntegral sqd)
-    audioResampler <- lift $ resample 3 10 (VG.fromList coeffsAudioResampler) sqd sqd
-    audioFilter    <- lift $ filterr (VG.fromList coeffsAudioFilter) sqd sqd
     audioFFT       <- lift $ fftwReal sqd 
     audioSpectrum  <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
     --audioSpectrum  <- plotWaterfall 1024 768 ((sqd `quot` 2) + 1) 800 jet_mod 
@@ -58,7 +57,7 @@ main = eitherT putStrLn return $ do
 
     --Build the pipeline
     let inputSpectrum :: Producer (VS.Vector (Complex CDouble)) IO ()
-        inputSpectrum = str >-> P.map (makeComplexBufferVect samples) >-> rfDecimator 
+        inputSpectrum = str >-> P.map (makeComplexBufferVect samples) >-> decimate decimation (VG.fromList coeffsRFDecim) samples sqd
 
         spectrumFFTSink :: Consumer (VS.Vector (Complex CDouble)) IO () 
         spectrumFFTSink = P.map (VG.zipWith (**) window . VG.zipWith (**) (fftFixup sqd)) >-> rfFFT >-> P.map (VG.map ((* (4 / fromIntegral sqd)) . realToFrac . magnitude)) >-> rfSpectrum
@@ -67,7 +66,7 @@ main = eitherT putStrLn return $ do
         p1 = runEffect $ fork inputSpectrum >-> hoist lift spectrumFFTSink
 
         demodulated :: Producer (VS.Vector CDouble) IO ()
-        demodulated = p1 >-> P.map (fmDemodVec 0) >-> audioResampler >-> audioFilter
+        demodulated = p1 >-> P.map (fmDemodVec 0) >-> resample 3 10 (VG.fromList coeffsAudioResampler) sqd sqd >-> filterr (VG.fromList coeffsAudioFilter) sqd sqd
 
         audioSpectrumSink :: Consumer (VS.Vector CDouble) IO ()
         audioSpectrumSink = P.map (VG.zipWith (*) window) >-> audioFFT >-> P.map (VG.map ((/ 100) . realToFrac . magnitude)) >-> audioSpectrum
