@@ -45,11 +45,12 @@ main = eitherT putStrLn return $ do
     setupGLFW
     str            <- sdrStream 104500000 1280000 bufNum bufLen
     rfFFT          <- lift $ fftw samples
-    rfSpectrum     <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
+    --rfSpectrum     <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
     --rfSpectrum     <- plotTexture 1024 768 samples samples --jet (4 / fromIntegral sqd)
+    rfSpectrum     <- plotWaterfall 1024 768 samples 1000 jet_mod --jet (4 / fromIntegral sqd)
     audioFFT       <- lift $ fftwReal sqd 
-    audioSpectrum  <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
-    --audioSpectrum  <- plotWaterfall 1024 768 ((sqd `quot` 2) + 1) 800 jet_mod 
+    --audioSpectrum  <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
+    audioSpectrum  <- plotTexture 1024 768 ((sqd `quot` 2) + 1) 1000
     pulseSink      <- lift $ pulseAudioSink 
 
     let window0       = hanning samples :: VS.Vector CDouble
@@ -60,7 +61,7 @@ main = eitherT putStrLn return $ do
         inputSpectrum = str >-> P.map (makeComplexBufferVect samples) 
 
         spectrumFFTSink :: Consumer (VS.Vector (Complex CDouble)) IO () 
-        spectrumFFTSink = P.map (VG.zipWith (flip mult) window0 . VG.zipWith mult (fftFixup samples)) >-> rfFFT >-> P.map (VG.map ((* (4 / fromIntegral samples)) . realToFrac . magnitude)) >-> rfSpectrum
+        spectrumFFTSink = P.map (VG.zipWith (flip mult) window0 . VG.zipWith mult (fftFixup samples)) >-> rfFFT >-> P.map (VG.map ((* (32 / fromIntegral samples)) . realToFrac . magnitude)) >-> rfSpectrum
 
         p1 :: Producer (VS.Vector (Complex CDouble)) IO () 
         p1 = runEffect $ fork inputSpectrum >-> hoist lift spectrumFFTSink
