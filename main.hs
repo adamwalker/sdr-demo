@@ -46,11 +46,12 @@ main = eitherT putStrLn return $ do
     str            <- sdrStream 104500000 1280000 bufNum bufLen
     rfFFT          <- lift $ fftw samples
     --rfSpectrum     <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
-    --rfSpectrum     <- plotTexture 1024 768 samples samples --jet (4 / fromIntegral sqd)
-    rfSpectrum     <- plotWaterfall 1024 768 samples 1000 jet_mod --jet (4 / fromIntegral sqd)
+    --rfSpectrum     <- plotTextureAxes 1024 480 samples samples (centeredAxes 1024 480 104.5 1.28 0.25)
+    rfSpectrum     <- plotWaterfall 1024 480 samples 1000 jet_mod 
     audioFFT       <- lift $ fftwReal sqd 
     --audioSpectrum  <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
-    audioSpectrum  <- plotTexture 1024 768 ((sqd `quot` 2) + 1) 1000
+    --audioSpectrum  <- plotTexture 1024 768 ((sqd `quot` 2) + 1) 1000
+    audioSpectrum  <- plotFillAxes 1024 480 ((sqd `quot` 2) + 1) jet (zeroAxes 1024 480 48 10)
     pulseSink      <- lift $ pulseAudioSink 
 
     let window0       = hanning samples :: VS.Vector CDouble
