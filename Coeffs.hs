@@ -11,7 +11,7 @@ import Foreign.C.Types
   remez(50, f, a)
 -}
 
-coeffsRFDecim :: [Complex CDouble]
+coeffsRFDecim :: [CDouble]
 coeffsRFDecim = [
 
    0.0252935,
