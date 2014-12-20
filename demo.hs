@@ -31,16 +31,6 @@ data Options = Options {
     frequency :: Word32
 }
 
-parseSize :: ReadM Integer
-parseSize = eitherReader $ \arg -> case reads arg of
-    [(r, suffix)] -> case suffix of 
-        []  -> return r
-        "K" -> return $ r * 1000 
-        "M" -> return $ r * 1000000
-        "G" -> return $ r * 1000000000
-        x   -> Left  $ "Cannot parse suffix: `" ++ x ++ "'"
-    _             -> Left $ "Cannot parse value: `" ++ arg ++ "'"
-
 optParser :: Parser Options
 optParser = Options 
           <$> option (fmap fromIntegral parseSize) (
