@@ -1,13 +1,17 @@
+{-# LANGUAGE RecordWildCards #-}
+
 import Data.Complex
 import Control.Monad.Trans.Either
 import Foreign.C.Types
+import Data.Word
 
-import Data.Vector.Storable as VS
-import Data.Vector.Generic as VG
+import Data.Vector.Storable as VS hiding ((++))
+import Data.Vector.Generic as VG hiding ((++))
 import Pipes
 import qualified Pipes.Prelude as P
 import Graphics.UI.GLFW as G
 import Graphics.Rendering.OpenGL (GLfloat)
+import Options.Applicative
 
 import SDR.Filter 
 import SDR.RTLSDRStream
@@ -22,6 +26,32 @@ import Graphics.DynamicGraph.Util
 
 --The filter coefficients are stored in another module
 import Coeffs
+
+data Options = Options {
+    frequency :: Word32
+}
+
+parseSize :: ReadM Integer
+parseSize = eitherReader $ \arg -> case reads arg of
+    [(r, suffix)] -> case suffix of 
+        []  -> return r
+        "K" -> return $ r * 1000 
+        "M" -> return $ r * 1000000
+        "G" -> return $ r * 1000000000
+        x   -> Left  $ "Cannot parse suffix: `" ++ x ++ "'"
+    _             -> Left $ "Cannot parse value: `" ++ arg ++ "'"
+
+optParser :: Parser Options
+optParser = Options 
+          <$> option (fmap fromIntegral parseSize) (
+                 long "frequency"  
+              <> short 'f' 
+              <> metavar "FREQUENCY" 
+              <> help "Frequency to tune to"
+              )
+
+opt :: ParserInfo Options
+opt = info (helper <*> optParser) (fullDesc <> progDesc "SDR library demo. Receive FM broadcast band radio." <> header "SDR demo")
 
 bufNum     = 1
 bufLen     = 16384
@@ -39,11 +69,11 @@ sqd        = samples `quot` decimation
     start audio filter cutoff at 15khz (0.3125 * 48)
 -}
 
-main = eitherT putStrLn return $ do
+doIt Options{..} = do
 
     --Initialize the components that require initialization
     setupGLFW
-    str            <- sdrStream 104500000 1280000 bufNum bufLen
+    str            <- sdrStream frequency 1280000 bufNum bufLen
     rfFFT          <- lift $ fftw samples
     --rfSpectrum     <- return (devnull :: Consumer (VS.Vector GLfloat) IO ())
     --rfSpectrum     <- plotTextureAxes 1024 480 samples samples (centeredAxes 1024 480 104.5 1.28 0.25)
@@ -85,3 +115,4 @@ main = eitherT putStrLn return $ do
     --Run the pipeline
     lift pipeline
 
+main = execParser opt >>= eitherT putStrLn return . doIt
