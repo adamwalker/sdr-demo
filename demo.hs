@@ -6,13 +6,11 @@ import Control.Monad.Trans.Either
 import Foreign.C.Types
 import Data.Word
 
-import Data.Vector.Storable as VS hiding ((++))
-import Data.Vector.Generic as VG hiding ((++))
-import Pipes
-import qualified Pipes.Prelude as P
-import Graphics.UI.GLFW as G
-import Graphics.Rendering.OpenGL (GLfloat)
-import Options.Applicative
+import qualified Data.Vector.Storable as VS hiding ((++))
+import qualified Data.Vector.Generic  as VG hiding ((++))
+import           Pipes
+import qualified Pipes.Prelude        as P
+import           Options.Applicative
 
 import SDR.Filter 
 import SDR.RTLSDRStream
@@ -46,7 +44,8 @@ optParser = Options
 opt :: ParserInfo Options
 opt = info (helper <*> optParser) (fullDesc <> progDesc "SDR library demo. Receive FM broadcast band radio." <> header "SDR demo")
 
-samples    = 8192
+samples      = 8192
+audioSamples = 1024
 
 {-
     sampling frequency of the input is 1280 khz
@@ -70,8 +69,8 @@ doIt Options{..} = do
     --Initialize the graphs and FFTs
     rfFFT          <- lift $ fftw samples
     rfSpectrum     <- plotWaterfall 1024 480 samples 1000 jet_mod 
-    audioFFT       <- lift $ fftwReal samples 
-    audioSpectrum  <- plotFillAxes 1024 480 ((samples `quot` 2) + 1) jet (zeroAxes 1024 480 48 10)
+    audioFFT       <- lift $ fftwReal audioSamples 
+    audioSpectrum  <- plotFillAxes 1024 480 ((audioSamples `quot` 2) + 1) jet (zeroAxes 1024 480 48 10)
 
     --Initialize the sound sink
     pulseSink      <- lift pulseAudioSink 
@@ -85,48 +84,32 @@ doIt Options{..} = do
         window  = hanning samples
 
     --Build the pipeline
-    let inputSpectrum ::  Producer (VS.Vector (Complex Float)) IO ()
-        inputSpectrum =   str 
-                      >-> P.map convertCAVX
+    lift $ runEffect $   str
+                     >-> P.map convertCAVX
+                     >-> foldl1 combine [
 
-        spectrumFFTSink ::  Consumer (VS.Vector (Complex Float)) IO () 
-        spectrumFFTSink =   P.map (VG.zipWith (flip mult) window0 . VG.zipWith mult (fftFixup samples)) 
+                            P.map (VG.zipWith (flip mult) window0 . VG.zipWith mult (fftFixup samples)) 
                         >-> P.map (VG.map (cplxMap (realToFrac :: Float -> CDouble)))
                         >-> rfFFT 
                         >-> P.map (VG.map ((* (32 / fromIntegral samples)) . realToFrac . magnitude)) 
-                        >-> rfSpectrum
+                        >-> rfSpectrum,
 
-        p1 :: Producer (VS.Vector (Complex Float)) IO () 
-        p1 =  runEffect $   fork inputSpectrum 
-                        >-> hoist lift spectrumFFTSink
+                            decimate deci samples 
+                        >-> P.map (fmDemodVec 0) 
+                        >-> resample resp samples
+                        >-> filterr filt audioSamples
+                        >-> foldl1 combine [
 
-        demodulated :: Producer (VS.Vector Float) IO ()
-        demodulated =   p1 
-                    >-> decimate deci samples 
-                    >-> P.map (fmDemodVec 0) 
-                    >-> resample resp samples
-                    >-> filterr filt samples
+                                P.map (VG.zipWith (*) window) 
+                            >-> P.map (VG.map (realToFrac :: Float -> CDouble))
+                            >-> audioFFT 
+                            >-> P.map (VG.map ((/ 10) . realToFrac . magnitude)) 
+                            >-> audioSpectrum,
 
-        audioSpectrumSink :: Consumer (VS.Vector Float) IO ()
-        audioSpectrumSink =   P.map (VG.zipWith (*) window) 
-                          >-> P.map (VG.map (realToFrac :: Float -> CDouble))
-                          >-> audioFFT 
-                          >-> P.map (VG.map ((/ 100) . realToFrac . magnitude)) 
-                          >-> audioSpectrum
-
-        p2 :: Producer (VS.Vector Float) IO ()
-        p2 =  runEffect $   fork demodulated 
-                        >-> hoist lift audioSpectrumSink
-
-        audioSink :: Consumer (VS.Vector Float) IO ()
-        audioSink =   P.map (VG.map ((* 0.2) . realToFrac)) 
-                  >-> pulseSink
-
-        pipeline :: IO ()
-        pipeline = runEffect $ p2 >-> audioSink
-
-    --Run the pipeline
-    lift pipeline
+                                P.map (VG.map ((* 0.2) . realToFrac)) 
+                            >-> pulseSink
+                        ]
+                    ]
 
 main = execParser opt >>= eitherT putStrLn return . doIt
 
