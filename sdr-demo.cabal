@@ -19,6 +19,6 @@ executable sdr-demo
   main-is:             demo.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8, sdr, either, vector, pipes, storable-complex, optparse-applicative, GLFW-b, OpenGL, dynamic-graph
+  build-depends:       base >=4.7 && <4.9, sdr, either, vector, pipes, storable-complex, optparse-applicative, GLFW-b, OpenGL, dynamic-graph
   -- hs-source-dirs:      
   default-language:    Haskell2010
