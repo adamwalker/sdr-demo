@@ -95,7 +95,7 @@ doIt Options{..} = do
                         >-> rfSpectrum,
 
                             firDecimator deci samples 
-                        >-> P.map (fmDemodVec 0) 
+                        >-> fmDemod
                         >-> firResampler resp samples
                         >-> firFilter filt audioSamples
                         >-> foldl1 combine [
