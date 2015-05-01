@@ -94,10 +94,10 @@ doIt Options{..} = do
                         >-> P.map (VG.map ((* (32 / fromIntegral samples)) . realToFrac . magnitude)) 
                         >-> rfSpectrum,
 
-                            decimate deci samples 
+                            firDecimator deci samples 
                         >-> P.map (fmDemodVec 0) 
-                        >-> resample resp samples
-                        >-> filterr filt audioSamples
+                        >-> firResampler resp samples
+                        >-> firFilter filt audioSamples
                         >-> foldl1 combine [
 
                                 P.map (VG.zipWith (*) window) 
