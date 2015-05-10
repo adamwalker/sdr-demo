@@ -21,6 +21,7 @@ import SDR.Demod
 import SDR.Pulse
 import SDR.PipeUtils
 import SDR.ArgUtils
+import SDR.CPUID
 
 import Graphics.DynamicGraph.Waterfall
 import Graphics.DynamicGraph.Util
@@ -59,6 +60,8 @@ audioSamples = 1024
 
 doIt Options{..} = do
 
+    info <- lift getCPUInfo
+
     --Initialize GLFW
     res            <- lift setupGLFW
     unless res (left "Unable to initilize GLFW")
@@ -76,9 +79,9 @@ doIt Options{..} = do
     pulseSink      <- lift pulseAudioSink 
 
     --Initialize the filters
-    deci <- lift $ fastDecimatorC 8 coeffsRFDecim 
-    resp <- lift $ haskellResampler 3 10 coeffsAudioResampler
-    filt <- lift $ fastSymmetricFilterR  coeffsAudioFilter
+    deci <- lift $ fastDecimatorC info 8 coeffsRFDecim 
+    resp <- lift $ fastResamplerR info 3 10 coeffsAudioResampler
+    filt <- lift $ fastFilterSymR info coeffsAudioFilter
 
     let window0 = hanning samples :: VS.Vector Float
         window  = hanning samples
